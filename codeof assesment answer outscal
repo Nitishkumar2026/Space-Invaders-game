@@ -1,0 +1,237 @@
+#include <SFML/Graphics.hpp>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
+#include <chrono>
+#include <thread>
+
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 600;
+const int PLAYER_SPEED = 5;
+const int ENEMY_SPEED = 2;
+const int BULLET_SPEED = 5;
+const int BULLET_DELAY = 500; // Milliseconds between each bullet fired
+const int CAMERA_SHAKE_DURATION = 200; // Milliseconds
+const int CAMERA_SHAKE_INTENSITY = 5; // Pixels
+
+class Bullet {
+public:
+    int x, y;
+    bool active;
+    Bullet(int _x, int _y) : x(_x), y(_y), active(true) {}
+    void move() {
+        y -= BULLET_SPEED;
+        if (y < 0) {
+            active = false;
+        }
+    }
+};
+
+class Player {
+public:
+    int x, y;
+    std::chrono::time_point<std::chrono::steady_clock> lastFireTime;
+    Player() : x(SCREEN_WIDTH / 2), y(SCREEN_HEIGHT - 50) {}
+    void moveLeft() {
+        if (x > 0) x -= PLAYER_SPEED;
+    }
+    void moveRight() {
+        if (x < SCREEN_WIDTH - 50) x += PLAYER_SPEED;
+    }
+    bool canFire() {
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastFireTime).count();
+        return elapsedTime >= BULLET_DELAY;
+    }
+    void fire(std::vector<Bullet>& bullets) {
+        if (canFire()) {
+            bullets.emplace_back(x + 25, y);
+            lastFireTime = std::chrono::steady_clock::now();
+        }
+    }
+};
+
+class Enemy {
+public:
+    int x, y;
+    std::chrono::time_point<std::chrono::steady_clock> lastFireTime;
+    std::string type;
+    Enemy(int _x, int _y, std::string _type) : x(_x), y(_y), type(_type) {}
+    void move() {
+        y += ENEMY_SPEED;
+        if (y > SCREEN_HEIGHT) {
+            y = 0;
+            x = rand() % SCREEN_WIDTH;
+        }
+    }
+    bool canFire() {
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastFireTime).count();
+        return elapsedTime >= BULLET_DELAY;
+    }
+    void fire(std::vector<Bullet>& bullets) {
+        if (canFire()) {
+            if (type == "Sub-Zero") {
+                // Frost Beam
+                bullets.emplace_back(x + 15, y + 30);
+            } else if (type == "ThunderSnake") {
+                // Torpedo
+                bullets.emplace_back(x + 15, y + 30);
+            } else if (type == "Zapper") {
+                // Locked Missile
+                bullets.emplace_back(x + 15, y + 30);
+            } else {
+                // Simple Bullet
+                bullets.emplace_back(x + 15, y + 30);
+            }
+            lastFireTime = std::chrono::steady_clock::now();
+        }
+    }
+};
+
+class Camera {
+public:
+    int xOffset, yOffset;
+    bool shaking;
+    sf::Vector2f shakeOffset;
+    std::chrono::time_point<std::chrono::steady_clock> shakeStartTime;
+
+    Camera() : xOffset(0), yOffset(0), shaking(false) {}
+
+    void shake() {
+        shaking = true;
+        shakeStartTime = std::chrono::steady_clock::now();
+    }
+
+    void update() {
+        if (shaking) {
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - shakeStartTime).count();
+            if (elapsedTime < CAMERA_SHAKE_DURATION) {
+                shakeOffset.x = (rand() % (2 * CAMERA_SHAKE_INTENSITY)) - CAMERA_SHAKE_INTENSITY;
+                shakeOffset.y = (rand() % (2 * CAMERA_SHAKE_INTENSITY)) - CAMERA_SHAKE_INTENSITY;
+            } else {
+                shaking = false;
+                shakeOffset.x = 0;
+                shakeOffset.y = 0;
+            }
+        }
+    }
+};
+
+int main() {
+    srand(time(NULL));
+
+    sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Space Invaders");
+    Player player;
+    std::vector<Enemy> enemies;
+    std::vector<Bullet> playerBullets;
+    std::vector<Bullet> enemyBullets;
+    Camera camera;
+
+    // Populate enemies
+    enemies.emplace_back(rand() % SCREEN_WIDTH, rand() % (SCREEN_HEIGHT / 2), "Sub-Zero");
+    enemies.emplace_back(rand() % SCREEN_WIDTH, rand() % (SCREEN_HEIGHT / 2), "ThunderSnake");
+    enemies.emplace_back(rand() % SCREEN_WIDTH, rand() % (SCREEN_HEIGHT / 2), "Zapper");
+    for (int i = 0; i < 7; ++i) {
+        enemies.emplace_back(rand() % SCREEN_WIDTH, rand() % (SCREEN_HEIGHT / 2), "Simple");
+    }
+
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
+                window.close();
+        }
+
+        // Player movement
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
+            player.moveLeft();
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
+            player.moveRight();
+
+        // Player firing
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
+            player.fire(playerBullets);
+
+        // Move enemies
+        for (auto& enemy : enemies) {
+            enemy.move();
+            // Enemy firing
+            enemy.fire(enemyBullets);
+        }
+
+        // Move bullets
+        for (auto& bullet : playerBullets) {
+            bullet.move();
+        }
+        for (auto& bullet : enemyBullets) {
+            bullet.move();
+        }
+
+        // Collision detection - bullet and enemy
+        for (auto& bullet : playerBullets) {
+            for (auto& enemy : enemies) {
+                if (bullet.x < enemy.x + 30 && bullet.x + 2 > enemy.x && bullet.y < enemy.y + 30 && bullet.y + 10 > enemy.y) {
+                    enemy.y = 0;
+                    enemy.x = rand() % SCREEN_WIDTH;
+                    bullet.active = false;
+                    camera.shake();
+                }
+            }
+        }
+
+        // Collision detection - bullet and player
+        for (auto& bullet : enemyBullets) {
+            if (bullet.x < player.x + 50 && bullet.x + 2 > player.x && bullet.y < player.y + 20 && bullet.y + 10 > player.y) {
+                std::cout << "Game Over!\n";
+                window.close();
+            }
+        }
+
+        // Remove inactive bullets
+        playerBullets.erase(std::remove_if(playerBullets.begin(), playerBullets.end(), [](const Bullet& bullet) { return !bullet.active; }), playerBullets.end());
+        enemyBullets.erase(std::remove_if(enemyBullets.begin(), enemyBullets.end(), [](const Bullet& bullet) { return !bullet.active; }), enemyBullets.end());
+
+        // Update camera
+        camera.update();
+
+        // Rendering
+        window.clear(sf::Color::Black);
+
+        // Draw player
+        sf::RectangleShape playerShape(sf::Vector2f(50, 20));
+        playerShape.setFillColor(sf::Color::White);
+        playerShape.setPosition(player.x + camera.shakeOffset.x, player.y + camera.shakeOffset.y);
+        window.draw(playerShape);
+
+        // Draw enemies
+        for (const auto& enemy : enemies) {
+            sf::RectangleShape enemyShape(sf::Vector2f(30, 30));
+            enemyShape.setFillColor(sf::Color::White);
+            enemyShape.setPosition(enemy.x + camera.shakeOffset.x, enemy.y + camera.shakeOffset.y);
+            window.draw(enemyShape);
+        }
+
+        // Draw player bullets
+        for (const auto& bullet : playerBullets) {
+            sf::RectangleShape bulletShape(sf::Vector2f(2, 10));
+            bulletShape.setFillColor(sf::Color::White);
+            bulletShape.setPosition(bullet.x + camera.shakeOffset.x, bullet.y + camera.shakeOffset.y);
+            window.draw(bulletShape);
+        }
+
+        // Draw enemy bullets
+        for (const auto& bullet : enemyBullets) {
+            sf::RectangleShape bulletShape(sf::Vector2f(2, 10));
+            bulletShape.setFillColor(sf::Color::Red);
+            bulletShape.setPosition(bullet.x + camera.shakeOffset.x, bullet.y + camera.shakeOffset.y);
+            window.draw(bulletShape);
+        }
+
+        window.display();
+    }
+
+    return 0;
+}
